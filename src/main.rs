@@ -11,7 +11,7 @@ enum Direction {
     West,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, PartialEq, Eq)]
 struct Position {
     x: i32,
     y: i32,
@@ -21,10 +21,7 @@ struct Position {
 struct Moving(bool, bool);
 
 #[derive(Component, Debug)]
-struct Tile {
-    x: i32,
-    y: i32,
-}
+struct Tile;
 
 impl Position {
     fn new(x: i32, y: i32) -> Self {
@@ -34,6 +31,9 @@ impl Position {
 
 #[derive(Component)]
 struct Player;
+
+#[derive(Component)]
+struct AdventureTitle;
 
 fn main() {
     App::new()
@@ -54,7 +54,7 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(0.3))
-                .with_system(player_walk),
+                .with_system(entity_walk),
         )
         .run();
 }
@@ -82,29 +82,32 @@ fn change_player_direction(
 fn move_player(keyboard_input: Res<Input<KeyCode>>, mut query: Query<&mut Moving, With<Player>>) {
     if keyboard_input.just_released(KeyCode::Space) {
         if let Some(mut moving) = query.iter_mut().next() {
-            println!("changing moving: {:?}", moving.0);
             moving.0 = !moving.0;
         }
     }
 }
 
-fn player_walk(mut query: Query<(&Direction, &mut Moving, &mut Position), With<Player>>) {
+fn entity_walk(mut query: Query<(&Direction, &mut Moving, &mut Position)>) {
     for (direction, mut moving, mut position) in query.iter_mut() {
         if moving.0 {
             moving.1 = !moving.1;
+            let previous_position = position.clone();
             match direction {
                 Direction::North => {
-                    position.y += 1;
+                    position.y = std::cmp::min(position.y + 1, ARENA_HEIGHT - 1);
                 }
                 Direction::South => {
-                    position.y -= 1;
+                    position.y = std::cmp::max(position.y - 1, 0);
                 }
                 Direction::East => {
-                    position.x += 1;
+                    position.x = std::cmp::min(position.x + 1, ARENA_WIDTH - 1);
                 }
                 Direction::West => {
-                    position.x -= 1;
+                    position.x = std::cmp::max(position.x - 1, 0);
                 }
+            }
+            if *position == previous_position {
+                moving.0 = false;
             }
         }
     }
@@ -174,16 +177,18 @@ fn convert(pos: f32, bound_window: f32, bound_game: f32) -> f32 {
 
 fn animate_tiles(
     windows: Res<Windows>,
-    mut query: Query<(&Tile, &mut TextureAtlasSprite, &mut Transform)>,
+    mut query: Query<(&Position, &mut TextureAtlasSprite, &mut Transform), With<Tile>>,
 ) {
-    println!("animating tiles");
-    for (tile, mut sprite, mut transform) in query.iter_mut() {
-        println!("updating tile {:?}", tile);
-        sprite.index = 1;
+    for (position, mut sprite, mut transform) in query.iter_mut() {
+        sprite.index = 5;
         if let Some(window) = windows.get_primary() {
             transform.translation = Vec3::new(
-                convert(tile.x as f32, window.width() as f32, ARENA_WIDTH as f32),
-                convert(tile.y as f32, window.height() as f32, ARENA_HEIGHT as f32),
+                convert(position.x as f32, window.width() as f32, ARENA_WIDTH as f32),
+                convert(
+                    position.y as f32,
+                    window.height() as f32,
+                    ARENA_HEIGHT as f32,
+                ),
                 0.0,
             );
         }
@@ -217,14 +222,37 @@ fn setup(
     let basictiles_texture_atlas_handle = texture_atlases.add(basictiles_texture_atlas);
     for y in 0..ARENA_HEIGHT {
         for x in 0..ARENA_WIDTH {
-            println!("inserting tile {:?}", (x, y));
             commands
                 .spawn_bundle(SpriteSheetBundle {
                     texture_atlas: basictiles_texture_atlas_handle.clone(),
                     transform: Transform::from_scale(Vec3::splat(6.0)),
                     ..default()
                 })
-                .insert(Tile { x, y });
+                .insert(Position { x, y })
+                .insert(Tile);
         }
     }
+    commands
+        .spawn_bundle(
+            TextBundle::from_section(
+                "Adventure!",
+                TextStyle {
+                    font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                    font_size: 100.0,
+                    color: Color::WHITE,
+                },
+            )
+            .with_text_alignment(TextAlignment::TOP_CENTER)
+            .with_style(Style {
+                align_self: AlignSelf::FlexEnd,
+                position_type: PositionType::Absolute,
+                position: UiRect {
+                    bottom: Val::Px(50.0),
+                    right: Val::Px(50.0),
+                    ..default()
+                },
+                ..default()
+            }),
+        )
+        .insert(AdventureTitle);
 }
